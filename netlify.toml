@@ -1,0 +1,17 @@
+# Netlify configuration file
+# This helps Netlify build and deploy your app correctly
+
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+# Redirect all routes to index.html for React Router
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+# Environment variables are set in Netlify dashboard
+# Go to Site Settings → Environment Variables
+# Add: VITE_SOCKET_URL = https://your-backend-url.com
+
