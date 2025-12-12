@@ -56,6 +56,7 @@ app.post('/api/execute', async (req, res) => {
     let command = '';
     let filePath = '';
 
+    let exePath = '';
     switch (language) {
       case 'python':
         filePath = path.join(tempDir, `code_${timestamp}.py`);
@@ -69,10 +70,35 @@ app.post('/api/execute', async (req, res) => {
         break;
       case 'cpp':
         filePath = path.join(tempDir, `code_${timestamp}.cpp`);
-        const exePath = path.join(tempDir, `code_${timestamp}.exe`);
+        exePath = path.join(tempDir, `code_${timestamp}.exe`);
         fs.writeFileSync(filePath, code);
         // Try to compile and run (requires g++ installed)
         command = `g++ "${filePath}" -o "${exePath}" && "${exePath}"`;
+        break;
+      case 'c':
+        filePath = path.join(tempDir, `code_${timestamp}.c`);
+        exePath = path.join(tempDir, `code_${timestamp}.exe`);
+        fs.writeFileSync(filePath, code);
+        // Try to compile and run (requires gcc installed)
+        command = `gcc "${filePath}" -o "${exePath}" && "${exePath}"`;
+        break;
+      case 'java':
+        filePath = path.join(tempDir, `Main_${timestamp}.java`);
+        exePath = path.join(tempDir, `Main_${timestamp}.class`);
+        // Compile and run Java (requires javac and java installed)
+        // Extract class name from code or use Main
+        const className = 'Main_' + timestamp;
+        // Replace class name in code if needed (simple approach: assume Main class)
+        let javaCode = code;
+        if (!code.includes('public class')) {
+          // If no class definition, wrap in Main class
+          javaCode = `public class ${className} {\n    public static void main(String[] args) {\n${code.split('\n').map(line => '        ' + line).join('\n')}\n    }\n}`;
+        } else {
+          // Replace class name with timestamped version
+          javaCode = code.replace(/public class\s+(\w+)/, `public class ${className}`);
+        }
+        fs.writeFileSync(filePath, javaCode);
+        command = `cd "${tempDir}" && javac "${path.basename(filePath)}" && java ${className}`;
         break;
       default:
         return res.status(400).json({ error: 'Unsupported language' });
@@ -90,9 +116,8 @@ app.post('/api/execute', async (req, res) => {
       // Cleanup temp files
       try {
         if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-        if (language === 'cpp') {
-          const exePath = path.join(tempDir, `code_${timestamp}.exe`);
-          if (fs.existsSync(exePath)) fs.unlinkSync(exePath);
+        if (exePath && fs.existsSync(exePath)) {
+          fs.unlinkSync(exePath);
         }
       } catch (cleanupError) {
         console.error('Cleanup error:', cleanupError);

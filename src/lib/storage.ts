@@ -6,6 +6,10 @@ const STORAGE_KEYS = {
   PROJECTS: 'codecollab_projects',
   FILES: 'codecollab_files',
   MESSAGES: 'codecollab_messages',
+  CHANGE_REQUESTS: 'codecollab_change_requests',
+  COMMITS: 'codecollab_commits',
+  BRANCHES: 'codecollab_branches',
+  PULL_REQUESTS: 'codecollab_pull_requests',
   CURRENT_USER: 'codecollab_current_user',
 };
 
@@ -50,17 +54,24 @@ export const getUserByEmail = (email: string): User | null => {
 };
 
 // Project operations
-export const createProject = (project: Omit<Project, 'id' | 'created_at' | 'updated_at'>): Project => {
+export const createProject = (project: Omit<Project, 'id' | 'created_at' | 'updated_at' | 'admin_id'>): Project => {
   const projects = getStorage<Project>(STORAGE_KEYS.PROJECTS, []);
   const newProject: Project = {
     ...project,
+    admin_id: project.owner_id, // Admin is the project creator
     id: crypto.randomUUID(),
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   };
   projects.push(newProject);
   setStorage(STORAGE_KEYS.PROJECTS, projects);
+  
   return newProject;
+};
+
+export const isProjectAdmin = (projectId: string, userId: string): boolean => {
+  const project = getProjectById(projectId);
+  return project?.admin_id === userId;
 };
 
 export const getProjectById = (id: string): Project | null => {

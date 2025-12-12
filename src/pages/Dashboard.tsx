@@ -4,10 +4,18 @@ import { useAuth } from '../contexts/AuthContext';
 import {
   getProjectsByOwner,
   createProject,
+  createFile,
+  getProjectById,
 } from '../lib/storage';
-import { createFile } from '../lib/storage';
+import { createBranch } from '../lib/storage-advanced';
+import {
+  requestProjectAccess,
+  hasProjectAccess,
+  getUserProjects,
+} from '../lib/storage-access';
 import { Project } from '../types';
 import { Plus, LogOut, Code2, Copy, ExternalLink } from 'lucide-react';
+import backgroundImage from '../assets/pic1.png';
 
 export default function Dashboard() {
   const { user, signOut } = useAuth();
@@ -27,12 +35,27 @@ export default function Dashboard() {
   const fetchProjects = () => {
     try {
       if (!user) return;
-      const userProjects = getProjectsByOwner(user.id);
+      
+      // Get owned projects
+      const ownedProjects = getProjectsByOwner(user.id);
+      
+      // Get projects user has access to
+      const accessedProjectIds = getUserProjects(user.id);
+      const accessedProjects = accessedProjectIds
+        .map((id) => getProjectById(id))
+        .filter((p): p is NonNullable<typeof p> => p !== null);
+      
+      // Combine and remove duplicates (in case user owns and has access)
+      const allProjects = [...ownedProjects, ...accessedProjects];
+      const uniqueProjects = Array.from(
+        new Map(allProjects.map((p) => [p.id, p])).values()
+      );
+      
       // Sort by updated_at descending
-      userProjects.sort((a, b) => 
+      uniqueProjects.sort((a, b) => 
         new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
       );
-      setProjects(userProjects);
+      setProjects(uniqueProjects);
     } catch (error) {
       console.error('Error fetching projects:', error);
     } finally {
@@ -47,6 +70,14 @@ export default function Dashboard() {
       const project = createProject({
         name: newProjectName,
         owner_id: user.id,
+      });
+
+      // Create main branch
+      createBranch({
+        project_id: project.id,
+        name: 'main',
+        created_by: user.id,
+        is_main: true,
       });
 
       // Create a default file
@@ -65,16 +96,40 @@ export default function Dashboard() {
     }
   };
 
-  const handleJoinProject = () => {
-    if (roomId.trim()) {
-      navigate(`/editor/${roomId}`);
+  const handleJoinProject = async () => {
+    if (!roomId.trim() || !user) return;
+    
+    const projectId = roomId.trim();
+    
+    // Check if project exists
+    const project = getProjectById(projectId);
+    if (!project) {
+      alert('Project not found. Please check the share code.');
+      return;
     }
+    
+    // Check if user is the owner/admin
+    if (project.owner_id === user.id || project.admin_id === user.id) {
+      navigate(`/editor/${projectId}`);
+      return;
+    }
+    
+    // Check if user already has access
+    if (hasProjectAccess(projectId, user.id)) {
+      navigate(`/editor/${projectId}`);
+      return;
+    }
+    
+    // Request access
+    requestProjectAccess(projectId, user.id, user.name);
+    alert('Join request sent to project admin! You will be able to access the project once approved.');
+    setRoomId(''); // Clear the input
   };
 
   const copyProjectLink = (projectId: string) => {
-    const link = `${window.location.origin}/editor/${projectId}`;
-    navigator.clipboard.writeText(link);
-    alert('Project link copied to clipboard!');
+    // Copy only the project ID (share code), not the full URL
+    navigator.clipboard.writeText(projectId);
+    alert('Share code copied to clipboard!\n\nShare code: ' + projectId);
   };
 
   const handleLogout = async () => {
@@ -84,14 +139,36 @@ export default function Dashboard() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-black text-white flex items-center justify-center">
+      <div 
+        className="min-h-screen text-white flex items-center justify-center"
+        style={{
+          backgroundImage: `url(${backgroundImage})`,
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+          backgroundRepeat: 'no-repeat',
+        }}
+      >
         <div className="text-xl">Loading...</div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-black text-white">
+    <div 
+      className="min-h-screen text-white relative"
+      style={{
+        backgroundImage: `url(${backgroundImage})`,
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+        backgroundRepeat: 'no-repeat',
+        backgroundAttachment: 'fixed',
+      }}
+    >
+      {/* Overlay for better readability */}
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm"></div>
+      
+      {/* Content */}
+      <div className="relative z-10">
       {/* Header */}
       <div className="border-b border-gray-800">
         <div className="container mx-auto px-4 py-4 flex items-center justify-between">
@@ -132,7 +209,7 @@ export default function Dashboard() {
               type="text"
               value={roomId}
               onChange={(e) => setRoomId(e.target.value)}
-              placeholder="Enter Project ID or Share Link"
+              placeholder="Enter Share Code (Project ID)"
               className="flex-1 px-4 py-3 bg-gray-900 border border-gray-700 rounded-lg focus:outline-none focus:border-yellow-500"
               onKeyPress={(e) => e.key === 'Enter' && handleJoinProject()}
             />
@@ -141,7 +218,7 @@ export default function Dashboard() {
               className="px-6 py-3 bg-gray-800 hover:bg-gray-700 rounded-lg flex items-center gap-2 transition-colors"
             >
               <ExternalLink className="w-5 h-5" />
-              Join Project
+              Request Access
             </button>
           </div>
         </div>
@@ -179,8 +256,13 @@ export default function Dashboard() {
                     className="text-sm text-yellow-500 hover:text-yellow-400 flex items-center gap-1"
                   >
                     <Copy className="w-4 h-4" />
-                    Copy Link
+                    Copy Share Code
                   </button>
+                  {project.owner_id !== user?.id && (
+                    <span className="text-xs bg-green-500/20 text-green-400 px-2 py-1 rounded">
+                      Member
+                    </span>
+                  )}
                 </div>
               ))}
             </div>
@@ -222,6 +304,7 @@ export default function Dashboard() {
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 }
